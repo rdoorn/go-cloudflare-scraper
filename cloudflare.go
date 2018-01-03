@@ -50,12 +50,12 @@ func (t Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	_, err := r.Cookie("__cfduid")
 	if err != nil && Cfduid != nil {
-		fmt.Printf("cfduid cookie not set, setting\n")
+		//fmt.Printf("cfduid cookie not set, setting\n")
 		r.AddCookie(Cfduid)
 	}
 	_, err = r.Cookie("cf_clearance")
 	if err != nil && Cfduid != nil {
-		fmt.Printf("cfclearance cookie not set, setting\n")
+		//fmt.Printf("cfclearance cookie not set, setting\n")
 		r.AddCookie(Cfclearance)
 	}
 	//fmt.Printf("Roundtrip called for request: %+v\n", r)
