@@ -16,7 +16,10 @@ import (
 	"github.com/robertkrimen/otto"
 )
 
-const userAgent = `Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36`
+const UserAgent = `Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36`
+
+var Cfduid *http.Cookie
+var Cfclearance *http.Cookie
 
 type Transport struct {
 	upstream http.RoundTripper
@@ -31,21 +34,57 @@ func NewTransport(upstream http.RoundTripper) (*Transport, error) {
 	return &Transport{upstream, jar}, nil
 }
 
+func getCookie(jar []*http.Cookie, key string) *http.Cookie {
+	for _, j := range jar {
+		if j.Name == key {
+			return j
+		}
+	}
+	return nil
+}
+
 func (t Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Header.Get("User-Agent") == "" {
-		r.Header.Set("User-Agent", userAgent)
+		r.Header.Set("User-Agent", UserAgent)
 	}
+
+	_, err := r.Cookie("__cfduid")
+	if err != nil && Cfduid != nil {
+		fmt.Printf("cfduid cookie not set, setting\n")
+		r.AddCookie(Cfduid)
+	}
+	_, err = r.Cookie("cf_clearance")
+	if err != nil && Cfduid != nil {
+		fmt.Printf("cfclearance cookie not set, setting\n")
+		r.AddCookie(Cfclearance)
+	}
+	//fmt.Printf("Roundtrip called for request: %+v\n", r)
 
 	resp, err := t.upstream.RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}
+	/*
+		jar := resp.Cookies()
+		//fmt.Printf("Response cookied: %+v\n", jar)
+		d := getCookie(jar, "__cfduid")
+		if d != nil {
+			fmt.Printf("Adding cfduid cookie to cache: %+v\n", d)
+			Cfduid = d
+		}
+	*/
 
 	// Check if Cloudflare anti-bot is on
 	if resp.StatusCode == 503 && resp.Header.Get("Server") == "cloudflare-nginx" {
 		log.Printf("Solving challenge for %s", resp.Request.URL.Hostname())
 		resp, err := t.solveChallenge(resp)
 
+		//log.Printf("Solved response: %+v\n", resp)
+		//b, err := ioutil.ReadAll(resp.Body)
+		//log.Printf("Solved body: %+v\n", string(b))
+		//resp.Body.Close()
+		//jar := resp.Cookies()
+		//fmt.Printf("Response cookies2: %+v\n", jar)
 		return resp, err
 	}
 
@@ -104,11 +143,43 @@ func (t Transport) solveChallenge(resp *http.Response) (*http.Response, error) {
 		Jar:       t.cookies,
 	}
 
+	//fmt.Printf("JAR: %+v", client.Jar)
+	/*
+		_, err = req.Cookie("__cfduid")
+		if err != nil && Cfduid != nil {
+			fmt.Printf("cfduid cookie not set, setting\n")
+			req.AddCookie(Cfduid)
+		}
+	*/
+
+	//fmt.Printf("Solver request: %+v\n", req)
 	resp, err = client.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	//fmt.Printf("Solver response: %+v\n", resp)
+	b, err = ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	resp.Body = ioutil.NopCloser(bytes.NewReader(b))
+	//fmt.Printf("Body2: %+v\n", string(b))
+	//fmt.Printf("JAR2: %+v", client.Jar.Cookies(req.URL))
+	jar := client.Jar.Cookies(req.URL)
 
+	d := getCookie(jar, "__cfduid")
+	if d != nil {
+		fmt.Printf("Adding cfduid cookie to cache: %+v\n", d)
+		Cfduid = d
+	}
+	d = getCookie(jar, "cf_clearance")
+	if d != nil {
+		fmt.Printf("Adding cf_clearance cookie to cache: %+v\n", d)
+		Cfclearance = d
+	}
+
+	//http.DefaultClient.Jar = client.Jar
 	return resp, nil
 }
 
